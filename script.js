@@ -2772,6 +2772,17 @@ function drawSegmentLine(step) {
     } catch (e) { }
 }
 
+/* Aviso corto al llegar al inicio de una calle (sin picarle a "Siguiente") */
+function _navArrivalSentence(step) {
+    const calle = step.street ? `calle ${step.street}` : 'la calle';
+    const n = step.groupSize || (step.members ? step.members.length : 0);
+    let s = `Llegaste a ${calle}. Empieza a leer: ${n} ${n === 1 ? 'lectura' : 'lecturas'}`;
+    if (step.firstNum != null) s += `, primero el número ${step.firstNum}`;
+    s += '.';
+    if (step.side === 'pares' || step.side === 'nones') s += ` Del lado de los números ${step.side}.`;
+    return s;
+}
+
 let _lastSpoken = '';
 function _navSay(text) {
     if (!window.speechSynthesis || !text) return;
@@ -2919,10 +2930,11 @@ function onLocationUpdate(position) {
             const d = haversineKm(here, [step.members[k].lat, step.members[k].lon]) * 1000;
             if (d < bd) { bd = d; bk = k; }
         }
-        if (bd < 30) {               // empieza a leer (sin hablar)
+        if (bd < 30) {               // llegó: empieza a leer y se lo dice en voz alta
             step.phase = 'reading';
             step.readIdx = Math.max(0, bk);
             updateNavUI(false);
+            _navSay(_navArrivalSentence(step));
         }
         return;
     }
