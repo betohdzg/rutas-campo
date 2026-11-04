@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+    <title>Optimizador de Rutas CFE Valles</title>
+    <meta name="theme-color" content="#1F5B51">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    <!-- Librerías externas -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div id="app">
+        <aside class="panel" id="panel">
+            <button type="button" id="btnTogglePanel" class="panel-toggle" aria-controls="panel" aria-expanded="true">✕ Ver mapa</button>
+            <!-- Header Elegante -->
+            <div class="header">
+                <h1>Optimizador de Rutas CFE Valles</h1>
+                <small>Optimización inteligente de visitas a medidores • v1.3.8</small>
+            </div>
+            <div class="cfe-agency-card" id="agencySelectors">
+                <div class="cfe-agency-card__title">
+                    <span class="cfe-agency-card__dot"></span>
+                    Punto de partida · División Golfo Centro
+                </div>
+                <div class="cfe-agency-card__row">
+                    <div class="cfe-agency-field">
+                        <label for="selZona">Zona</label>
+                        <select id="selZona" class="cfe-agency-select"></select>
+                    </div>
+                    <div class="cfe-agency-field">
+                        <label for="selAgencia">Agencia</label>
+                        <select id="selAgencia" class="cfe-agency-select"></select>
+                    </div>
+                </div>
+                <div class="cfe-agency-card__foot">
+                    <div class="cfe-agency-card__footer" id="agencyLabel">—</div>
+                    <button type="button" id="btnVerProductividad" class="cfe-prod-btn" title="Abre el dashboard de productividad de la agencia elegida">📊 Ver Productividad</button>
+                </div>
+            </div>
+            <!-- Carga de Archivo -->
+            <div class="group">
+                <div class="uploader">
+                    <input type="file" id="fileInput" style="display:none" accept=".csv,.xlsx,.xls">
+                    <div class="row upload-actions">
+                        <button class="btn" onclick="document.getElementById('fileInput').click()">📂 Seleccionar archivo</button>
+                        <button class="btn field-btn" id="btnOpenField" type="button" title="Abre una ruta guardada con 'Ruta para campo' (no necesita el servidor)">📲 Abrir ruta guardada</button>
+                        <input type="file" id="fieldFileInput" accept=".json,application/json" hidden>
+                    </div>
+                    <button class="btn field-last" id="btnLastField" type="button" hidden>↩ Reabrir última ruta</button>
+                    <details class="hint cols-help">
+                        <summary>¿Qué columnas necesita el archivo?</summary>
+                        Columnas esperadas (sin importar mayúsculas/acentos/espacios):<br>
+                        <code>Rpu, Cuenta, Nombre, Direccion, Medidor, CodigoMedidor, LoteMedidor, Anomalia, Observacion, LATITUD (o Mapa), LONGITUD</code><br>
+                        Acepta el Detallado tal como lo baja el sistema de CFE (.xls formato web).<br>
+                        <b>Caminata (opcionales):</b> <code>WALK_M</code> o <code>WALK_KM</code>. Se suma ida y vuelta.
+                    </details>
+                    <div id="poblacionInfo" class="pob-info" style="display:none"></div>
+                    <div class="row">
+                        <button id="btnClearMap" class="btn">🗑 Limpiar Mapa</button>
+                        <button id="btnResetView" class="btn">🔍 Enfocar Vista</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Leyenda y Filtros -->
+            <div class="group anom-panel">
+                <div class="ap-head">
+                    <strong>Anomalías y búsqueda</strong>
+                    <span class="ap-count"><span id="count"></span></span>
+                </div>
+
+                <div class="ap-search">
+                    <div class="ap-field">
+                        <span class="ap-ico" aria-hidden="true">🔍</span>
+                        <input type="search" id="q" placeholder="RPU, nombre o dirección" />
+                        <button id="btnClear" class="ap-btn" title="Limpiar búsqueda" aria-label="Limpiar búsqueda">✕</button>
+                    </div>
+                    <div class="ap-field">
+                        <span class="ap-ico" aria-hidden="true">#</span>
+                        <input type="search" id="qMedidor" placeholder="Código de medidor" />
+                        <button id="btnMedidorGo" class="ap-btn ap-go" title="Ir al medidor">Ir</button>
+                    </div>
+                </div>
+
+                <div class="ap-row">
+                    <span class="ap-label">Filtrar por anomalía</span>
+                    <button id="btnToggleAll" class="ap-link" type="button">Todas / ninguna</button>
+                </div>
+                <div id="filters" class="chip-group"></div>
+                <div class="ap-drops"><span id="drops"></span></div>
+
+                <details class="ap-legend">
+                    <summary>Colores del mapa</summary>
+                    <div class="legend" id="legend"></div>
+                    <div class="walk-legend">
+                        <span class="walk-swatch"></span> Tramo a pie (ida y vuelta)
+                    </div>
+                </details>
+            </div>
+
+            <hr>
+
+            <!-- Generación de Viajes -->
+            <div class="group">
+                <b>Generación de viajes (cap 390 min/día incluye regreso)</b>
+                <div class="kv">
+                    <div><b>Origen</b></div>
+                    <div>Lat <code id="latOrigin">20.211155</code>, Lon <code id="lonOrigin">-98.317830</code></div>
+                    <div><b>Vehículo</b></div>
+                    <div><code>OSRM (driving)</code> &nbsp; <span class="status" id="osrmStatus">listo</span></div>
+                </div>
+
+                <div class="kv">
+                    <label for="walkSpeed">Velocidad a pie (km/h)</label>
+                    <input id="walkSpeed" type="number" step="0.1" min="1" value="3.5">
+                </div>
+                <div class="kv">
+                    <label for="walkDefault">Distancia a pie por defecto (m, solo ida)</label>
+                    <input id="walkDefault" type="number" step="1" value="0"
+                        placeholder="0 = usar columnas WALK_M/WALK_KM">
+                </div>
+                <div class="kv">
+                    <label for="dwell">Dwell por punto (min)</label>
+                    <input id="dwell" type="number" step="0.5" value="2">
+                </div>
+
+                <div class="row" style="margin-top:12px;">
+                    <label class="pill opt"><input type="checkbox" id="cb2opt" checked> Usar 2‑opt</label>
+                </div>
+
+                <div class="row" style="margin-top:12px;">
+                    <button id="btnBuildTrips" class="btn primary">🚀 Generar viajes (OSRM)</button>
+                    <!-- Exportar: un solo botón con menú -->
+                    <div class="export-wrap" id="exportWrap">
+                        <button id="btnExportMenu" class="btn export-toggle" type="button" disabled
+                            aria-haspopup="true" aria-expanded="false" aria-controls="exportMenu">
+                            📤 Exportar <span class="export-caret" aria-hidden="true">▾</span>
+                        </button>
+                        <div class="export-menu" id="exportMenu" role="menu" hidden>
+                            <button id="btnExportTripsCSV" class="export-item" role="menuitem" disabled>
+                                <span class="ei-ico">📥</span>
+                                <span class="ei-txt"><b>Itinerario en CSV</b><small>Para Excel: orden, RPU, dirección y tiempos</small></span>
+                            </button>
+                            <button id="btnExportPDF" class="export-item" role="menuitem" disabled>
+                                <span class="ei-ico">📄</span>
+                                <span class="ei-txt"><b>Itinerario en PDF</b><small>Lista de visitas para imprimir</small></span>
+                            </button>
+                            <button id="btnReportPDF" class="export-item" role="menuitem" disabled>
+                                <span class="ei-ico">📊</span>
+                                <span class="ei-txt"><b>Reporte de resultados (PDF)</b><small>Resumen, croquis y cómo se eligió la ruta</small></span>
+                            </button>
+                            <button id="btnSaveField" class="export-item" role="menuitem" disabled>
+                                <span class="ei-ico">📲</span>
+                                <span class="ei-txt"><b>Ruta para campo (teléfono)</b><small>Archivo para abrir la ruta y navegar sin el servidor</small></span>
+                            </button>
+                            <button id="btnExportTripsGJ" class="export-item" role="menuitem" disabled>
+                                <span class="ei-ico">📍</span>
+                                <span class="ei-txt"><b>GeoJSON</b><small>Para mapas (QGIS, Google Earth)</small></span>
+                            </button>
+                        </div>
+                    </div>
+                    <button id="btnStartGPSNavigation" class="btn" disabled>📍 Iniciar Navegación GPS</button>
+
+                    <!-- Detalles de la ruta: una tarjeta con pestañas -->
+                    <section class="route-details is-collapsed" id="routeDetails" hidden>
+                        <button type="button" class="rd-head" id="rdToggle" aria-expanded="false" aria-controls="rdContent">
+                            <span><span aria-hidden="true">📊</span> Detalles de la ruta</span>
+                            <span class="rd-sub" id="rdSub"></span>
+                            <span class="rd-chevron" aria-hidden="true">▾</span>
+                        </button>
+                        <div id="rdContent">
+                        <div class="rd-tabs" role="tablist">
+                            <button type="button" class="rd-tab" role="tab" data-pane="decisionPanel">Cómo se eligió</button>
+                            <button type="button" class="rd-tab" role="tab" data-pane="breakdownPanel">Los números</button>
+                            <button type="button" class="rd-tab" role="tab" data-pane="spatialPanel">Territorio</button>
+                        </div>
+                        <div class="rd-body">
+                            <div id="decisionPanel" class="rd-pane" style="display:none;"></div>
+                            <div id="breakdownPanel" class="rd-pane" style="display:none;"></div>
+                            <div id="spatialPanel" class="rd-pane" style="display:none;"></div>
+                        </div>
+                        </div>
+                    </section>
+                    <div id="parkingPanel" style="display:none;"></div>
+
+                    <details class="adv">
+                        <summary>⚙️ Opciones Avanzadas</summary>
+                        <div class="kv" style="margin-top:12px;">
+                            <div><label for="concurrency">Concurrencia OSRM</label></div>
+                            <input id="concurrency" type="number" min="1" max="16" value="8">
+
+                            <div><label for="usePhases">Plan en 2 fases (Haversine → OSRM)</label></div>
+                            <input id="usePhases" type="checkbox" checked>
+
+                            <div><label for="useK">Usar vecindario K‑vecinos (2‑opt)</label></div>
+                            <input id="useK" type="checkbox" checked>
+
+                            <div><label for="kValue">K (vecinos por nodo)</label></div>
+                            <input id="kValue" type="number" min="3" max="50" value="10">
+
+                            <div><label for="useTable">Usar OSRM Table</label></div>
+                            <input id="useTable" type="checkbox">
+
+                            <div><label for="optIterMax">Iteraciones máx. 2‑opt</label></div>
+                            <input id="optIterMax" type="number" min="50" max="2000" value="300">
+
+                            <div><label for="optTimeMs">Límite de tiempo 2‑opt (ms)</label></div>
+                            <input id="optTimeMs" type="number" min="100" max="60000" value="2500">
+
+                            <button id="btnClearCache" class="btn small">Limpiar Cache OSRM</button>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Progreso -->
+                <div class="group">
+                    <b>Progreso del cálculo (OSRM)</b>
+                    <div id="progressWrap">
+                        <div id="progressBar">
+                            <div id="progressFill"></div>
+                        </div>
+                        <div id="progressText">0 / 0 — ETA …</div>
+                    </div>
+                    <div id="stats"></div>
+                    <div id="etaChartWrap">
+                        <div class="etaLabel">ETA (estimado) en tiempo real</div>
+                        <canvas id="etaCanvas" width="540" height="80"></canvas>
+                    </div>
+                    <div id="summaryTrips" class="meta"></div>
+                    <div id="daysPanel" class="filter-group"></div>
+                </div>
+        </aside>
+
+        <main id="map"></main>
+        <!-- Celular: acciones grandes al alcance del pulgar -->
+        <nav class="m-actions" id="mobileActions" aria-label="Acciones rápidas">
+            <button type="button" class="m-act" id="mActPanel" aria-label="Opciones"><span aria-hidden="true">☰</span><span class="lbl"> Opciones</span></button>
+            <button type="button" class="m-act primary" id="mActBuild" disabled>🚀 Generar ruta</button>
+            <button type="button" class="m-act" id="mActNav" disabled>📍 Navegar</button>
+        </nav>
+    </div>
+
+    <!-- ==================== NAVEGACIÓN GPS (estilo Maps/Uber) ==================== -->
+    <div id="navigationScreen">
+        <header class="gmaps-top">
+            <button type="button" class="gmaps-close" onclick="stopGPSNavigation()" title="Cerrar">✕</button>
+            <div class="gmaps-top-info">
+                <span id="navETA">—</span>
+                <span class="gmaps-dot">·</span>
+                <span id="navDistanceTop">—</span>
+                <span class="gmaps-dot">·</span>
+                <span id="navCurrent">Día 1</span>
+            </div>
+            <select id="navDaySelect" class="gmaps-day" title="Día"></select>
+        </header>
+
+        <!-- IMPORTANTE: id=mapNav Y class=gmaps-map -->
+        <div id="mapNav" class="gmaps-map"></div>
+
+        <div class="gmaps-sheet">
+            <div class="gmaps-handle"></div>
+
+            <div class="gmaps-maneuver">
+                <div class="gmaps-icon" id="navModeIcon">⬆</div>
+                <div class="gmaps-maneuver-text">
+                    <div class="gmaps-dist" id="navDistance">—</div>
+                    <div class="gmaps-instr" id="navInstruction">Generando indicaciones…</div>
+                </div>
+            </div>
+
+            <div class="gmaps-dest">
+                <div class="gmaps-dest-label">Siguiente calle</div>
+                <div class="gmaps-rpu" id="navRpu">—</div>
+                <div class="gmaps-addr" id="navAddress">—</div>
+            </div>
+
+            <div class="gmaps-progress">
+                Paso <strong id="stepCounter">1</strong> de <strong id="totalSteps">1</strong>
+            </div>
+
+            <div class="gmaps-actions">
+                <button type="button" id="btnPrevStep" class="gmaps-btn ghost">Calle anterior</button>
+                <button type="button" id="btnNextStep" class="gmaps-btn solid">Siguiente calle</button>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>
